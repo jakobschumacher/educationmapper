@@ -1,0 +1,213 @@
+---
+title: "Education mapper"
+output: 
+  flexdashboard::flex_dashboard
+---
+
+```{r, eval=TRUE, echo=FALSE, message=FALSE }
+
+file <- "educationmapper_data.xlsx"
+source("R/code.R")
+
+  sheets <- readxl::excel_sheets(file)
+  if("Courses" %in% sheets){
+    courses <- readxl::read_excel(file, sheet = "Courses")
+  }
+  if("Participants" %in% sheets){
+    participants <- readxl::read_excel(file, sheet = "Participants")
+  }
+  if("Institutions" %in% sheets){
+    institutions <- readxl::read_excel(file, sheet = "Institutions")
+  }
+  if("Topics" %in% sheets){
+    topics <- readxl::read_excel(file, sheet = "Topics")
+  }
+
+
+
+```
+
+# List of courses {data-icon="ion-ios-list-outline"}
+
+
+Diese Seite zeigt alle eingegebenen Kurse der Excel-Tabelle: "`r file`"
+```{r}
+knitr::kable(courses)
+```
+   
+   
+# Topics {data-icon="ion-ios-shuffle-strong"}
+
+```{r}
+library(networkD3)
+number_of_columns <- ncol(str_split(courses$topic, ",", simplify = TRUE))
+
+df <- data.frame(str_split(courses$topic, ",", simplify = TRUE))
+names(df) <- paste0("topics_", 1:number_of_columns)
+
+courses_df <- courses %>% 
+  add_column(df) %>% 
+  pivot_longer(cols = starts_with("topics_"),
+               names_to = "week",
+               names_prefix = "topics_",
+               values_to = "new_topic",
+               values_drop_na = TRUE) %>% 
+  select(-topic) %>% 
+  filter(new_topic != "") %>% 
+  select(-week) %>% 
+  rename(topic = new_topic) %>% 
+  mutate(topic = str_trim(topic))
+
+
+# create nodes 
+nodes <- courses_df %>% 
+  select(name) %>% 
+  bind_rows(courses_df %>% 
+              select(topic))  %>% 
+  distinct()
+
+# networkD3 needs to start all numbers at 0
+nodes$id = seq(0, nrow(nodes)-1)
+
+
+edges <- courses_df %>% 
+  left_join(nodes %>% select(id, name), by = "name") %>% 
+  left_join(nodes %>% select(id, topic), by = "topic") %>% 
+  select("source" = "id.x", "target" = "id.y", "value" = "number_participants", "name" = "name")
+
+
+nodes <- courses_df %>% 
+  select(name) %>% 
+  bind_rows(courses_df %>% 
+              select(name = topic))  %>% 
+  distinct()
+
+# networkD3 needs to start all numbers at 0
+nodes$id = seq(0, nrow(nodes)-1)
+
+
+
+# Plot
+sankeyNetwork(Links = edges, Nodes = nodes, Source = "source",
+             Target = "target", Value = "value", NodeID = "name",
+             units = "TWh", fontSize = 12, nodeWidth = 30)
+```   
+ 
+ 
+# Reach {data-icon="ion-android-contacts"}
+
+Die folgende Grafik zeigt alle Kurse des Jahres 2021, die erfasst wurden.
+```{r}
+totalworkforce <- participants %>% summarise(sum(N, na.rm = TRUE)) %>% pull() 
+totaleducated <- courses %>% summarise(sum(number_participants, na.rm = TRUE)) %>% pull()
+cubelength <- floor(sqrt(totalworkforce))
+
+df <- tibble(
+  yaxis = rep(seq(1:cubelength), each = cubelength),
+  xaxis = rep(seq(1:cubelength), times = cubelength),
+  educated = c(rep(courses$name,  courses$number_participants), rep("Keine Bildung", times = (cubelength^2 - length(rep(courses$name,  courses$number_participants)))))
+)
+
+ggplot(df, aes(x = xaxis, y = yaxis, colour = educated)) +
+  geom_point() +
+  theme_void() +
+  theme(legend.position="bottom",
+        legend.title=element_blank())
+
+```
+
+
+# Size  {data-icon="ion-android-apps"}
+```{r}
+# library
+library(treemap)
+ 
+# Create data
+courses$size <- courses$number_participants * courses$duration_in_h
+
+# treemap
+treemap(courses,
+            index="name",
+            vSize="size",
+            type="index",
+            title="Größe der Module",                      # Customize your title
+            fontsize.title=12                       # Size of the title
+            )
+```
+
+
+# About    {data-icon="ion-information-circled"}
+## About the data
+Die Daten sind bislang komplett erfunden.
+
+## About educationmapper
+Der education mapper stellt Grafiken für Aus- Weiter- und Fortbildung dar. Die Daten werden in einer Excel-Tabelle eingelesen und in R mit dem package educationmapper umgewandelt und als diese Webseite als Flexdashboard dargestellt.
+
+```{r}
+# library(rbokeh)
+# # prepare data
+# elements <- subset(elements, !is.na(group))
+# elements$group <- as.character(elements$group)
+# elements$period <- as.character(elements$period)
+# 
+# # add colors for groups
+# metals <- c("alkali metal", "alkaline earth metal", "halogen",
+#   "metal", "metalloid", "noble gas", "nonmetal", "transition metal")
+# colors <- c("#a6cee3", "#1f78b4", "#fdbf6f", "#b2df8a", "#33a02c",
+#   "#bbbb88", "#baa2a6", "#e08e79")
+# elements$color <- colors[match(elements$metal, metals)]
+# elements$type <- elements$metal
+# 
+# # make coordinates for labels
+# elements$symx <- paste(elements$group, ":0.1", sep = "")
+# elements$numbery <- paste(elements$period, ":0.8", sep = "")
+# elements$massy <- paste(elements$period, ":0.15", sep = "")
+# elements$namey <- paste(elements$period, ":0.3", sep = "")
+# 
+# 
+# 
+# # Test
+# shortversion <- elements %>% filter(name == "Lithium")
+# 
+# 
+# 
+# # create figure
+# p <- figure(title = "Periodic Table", tools = c("resize", "hover"),
+#   ylim = as.character(c(7:1)), xlim = as.character(1:18),
+#   xgrid = FALSE, ygrid = FALSE, xlab = "", ylab = "",
+#   height = 445, width = 800) %>%
+# 
+# # plot rectangles
+# ly_crect(group, period, data = elements, 0.9, 0.9,
+#   fill_color = color, line_color = color, fill_alpha = 0.1,
+#   hover = list(name, atomic.number, type, atomic.mass,
+#     electronic.configuration)) %>%
+# 
+#   
+# # Test
+# ly_crect(group, period, data = shortversion, 5, 5,
+#   fill_color = color, line_color = color, fill_alpha = 0.1,
+#   hover = list(name, atomic.number, type, atomic.mass,
+#     electronic.configuration)) %>%  
+#   
+#   
+# # add symbol text
+# ly_text(symx, period, text = symbol, data = elements,
+#   font_style = "bold", font_size = "10pt",
+#   align = "left", baseline = "middle") %>%
+# 
+# # add atomic number text
+# ly_text(symx, numbery, text = atomic.number, data = elements,
+#   font_size = "6pt", align = "left", baseline = "middle") %>%
+# 
+# # add name text
+# ly_text(symx, namey, text = name, data = elements,
+#   font_size = "4pt", align = "left", baseline = "middle") %>%
+# 
+# # add atomic mass text
+# ly_text(symx, massy, text = atomic.mass, data = elements,
+#   font_size = "4pt", align = "left", baseline = "middle")
+# 
+# p
+```
+
